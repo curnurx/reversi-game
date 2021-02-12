@@ -11,13 +11,18 @@ fn main() {
         Print::board(&board);
         if board.is_end() {
             Print::game_end(&board);
-        }
-
+            break;
+        } 
         Print::turn(&board); 
         loop {
             match Input::new(&mut board) {
                 Ok(_) => break,
-                Err(e) => println!("{}", e),
+                Err(e) => {
+                    Print::clear();
+                    Print::board(&board);
+                    Print::turn(&board); 
+                    eprintln!("{}", e);
+                }
             }
         } 
     }
