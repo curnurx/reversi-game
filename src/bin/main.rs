@@ -1,7 +1,6 @@
 use reversi_game::*;
 use std::thread;
 use std::time::Duration;
-use std::io;
 fn main() {
     let mut board = ReversiBoard::new();
     Print::clear();
@@ -10,14 +9,16 @@ fn main() {
     loop {
         Print::clear();
         Print::board(&board);
-        
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
+        if board.is_end() {
+            Print::game_end(&board);
+        }
 
-        let mut input = input.split_whitespace();
-        let i = input.next().unwrap().parse::<i32>().unwrap() as usize;
-        let j = input.next().unwrap().parse::<i32>().unwrap() as usize;
-        board.try_set(i,j);
-        
+        Print::turn(&board); 
+        loop {
+            match Input::new(&mut board) {
+                Ok(_) => break,
+                Err(e) => println!("{}", e),
+            }
+        } 
     }
 }

@@ -1,10 +1,18 @@
+use std::io;
+use std::cmp::Ordering;
 use std::process::Command;
 use std::rc::Rc;
 use std::cell::RefCell;
 
 const ROW_SIZE: usize = 8;
 const COL_SIZE: usize = 8;
-const REVERSI_LOGO_STR: &str = "\n______  _____  _   _  _____ ______  _____  _____ \n| ___ \\|  ___|| | | ||  ___|| ___ \\/  ___||_   _|\n| |_/ /| |__  | | | || |__  | |_/ /\\ `--.   | |\n|    / |  __| | | | ||  __| |    /  `--. \\  | |\n| |\\ \\ | |___ \\ \\_/ /| |___ | |\\ \\ /\\__/ / _| |_\n\\_| \\_|\\____/  \\___/ \\____/ \\_| \\_|\\____/  \\___/ \n\n";
+const REVERSI_LOGO_STR: &str = 
+"\n______  _____  _   _  _____ ______  _____  _____ \
+\n| ___ \\|  ___|| | | ||  ___|| ___ \\/  ___||_   _|\
+\n| |_/ /| |__  | | | || |__  | |_/ /\\ `--.   | |\
+\n|    / |  __| | | | ||  __| |    /  `--. \\  | |\
+\n| |\\ \\ | |___ \\ \\_/ /| |___ | |\\ \\ /\\__/ / _| |_\
+\n\\_| \\_|\\____/  \\___/ \\____/ \\_| \\_|\\____/  \\___/ \n\n";
 const BOARD_LINE: &str =  "┼───┼───┼───┼───┼───┼───┼───┼───┼";
 const BOARD_LABLE : &str = " │ A │ B │ C │ D │ E │ F │ G │ H │";
 const DROW: [i32; 8] = [-1, -1, 0, 1, 1, 1, 0, -1];
@@ -15,24 +23,27 @@ const DCOL: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
 pub enum Stone {
     Black,
     White,
-    Empty,
+    Empty(bool),
 }
 
 pub struct ReversiBoard {
     board: [[Stone; COL_SIZE]; ROW_SIZE],
     turn: Stone,
+    game_end: bool,
 }
 
 impl ReversiBoard {
     pub fn new() -> ReversiBoard {
-        let mut board = [[Stone::Empty; COL_SIZE]; ROW_SIZE];
+        let mut board = [[Stone::Empty(false); COL_SIZE]; ROW_SIZE];
         board[3][3] = Stone::Black;
         board[4][4] = Stone::Black;
 
         board[3][4] = Stone::White;
         board[4][3] = Stone::White;
 
-        ReversiBoard { board , turn: Stone::Black }
+        let mut ret = ReversiBoard { board , turn: Stone::Black, game_end: false };
+        ret.mark();
+        ret
     }
      
     pub fn get(&self, row: usize, col: usize) -> Option<&Stone> {
@@ -43,15 +54,68 @@ impl ReversiBoard {
         }
     }
     // next turn return please 
-    pub fn try_set(&mut self, row: usize, col: usize) {
+    pub fn try_set(&mut self, row: usize, col: usize) -> bool {
         if self.can_set(row, col) {
             self.board[row][col] = self.my_stone();
             self.reverse(row, col);
-            self.turn = self.enemy_stone();
+            self.change_turn();
+            true
+        } else {
+            false
         }
     }
-    
-    fn check_can_any_set() {
+
+    fn get_turn(&self) -> Stone {
+        self.turn
+    }
+
+    pub fn is_end(&self) -> bool {
+        self.game_end
+    }
+
+    fn get_winner_string(&self) -> String {
+        if self.is_end() {
+            let mut black_cnt = 0;
+            let mut white_cnt = 0;
+            for i in 0..ROW_SIZE {
+                for j in 0..COL_SIZE {
+                    match self.board[i][j] {
+                        Stone::Black => black_cnt += 1,
+                        Stone::White => white_cnt += 1,
+                        _ => (),
+                    };
+                }
+            }
+            match black_cnt.cmp(&white_cnt) {
+                Ordering::Less => String::from("WHITE"),
+                Ordering::Equal => String::from("DRAW"),
+                Ordering::Greater => String::from("BLACK"),
+            }
+        } else {
+            String::from("DRAW")
+        }
+    }
+
+    fn change_turn(&mut self) {
+        self.turn = self.enemy_stone();
+        if self.mark() == 0 {
+            self.turn = self.enemy_stone();
+        };
+        if self.mark() == 0 {
+            self.game_end = true; 
+        }
+    }
+
+    fn mark (&mut self) -> usize {
+        let mut mark_cnt = 0;
+        for i in 0..ROW_SIZE {
+            for j in 0..COL_SIZE {
+                if self.can_set(i, j) {
+                    mark_cnt += 1;
+                }
+            }
+        }
+        mark_cnt
     }
 
     fn my_stone(&self) -> Stone {
@@ -66,12 +130,18 @@ impl ReversiBoard {
         }
     }
 
-    fn can_set(&self, row: usize, col: usize) -> bool {
+    fn can_set(&mut self, row: usize, col: usize) -> bool {
         match self.get(row, col) {
-            Some(Stone::Empty) => (),
+            Some(Stone::Empty(_)) => (),
             _ => return false,
         }
-        self.can_reverse(row, col)
+        if self.can_reverse(row, col) {
+            self.board[row][col] = Stone::Empty(true);
+            true
+        } else {
+            self.board[row][col] = Stone::Empty(false);
+            false
+        }
     }
     
     fn can_reverse(&self, row: usize, col: usize) -> bool {
@@ -122,11 +192,62 @@ impl ReversiBoard {
     }
 }
 
+pub struct Input;
+
+impl Input {
+    pub fn new(board: &mut ReversiBoard) -> Result<(),&'static str> {
+        println!("Input [1-8] [A-H] you want to set Stone\n
+Example) 4 F");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        let mut input = input.split_whitespace();
+
+        let row = match input.next() {
+            Some(n) => match n.parse::<i32>() {
+                Ok(v) if (1..=8).contains(&v) => v,
+                _ => return Err("[!] Please input [1-8] number at first parameter"),
+            },
+            None => return Err("[!] Please input two parameter"),
+        };
+        let col = match input.next() {
+            Some(n) => match n.parse::<char>() {
+                Ok(v) if ('A'..='H').contains(&v) => v,
+                _ => return Err("[!] Please input [A-H] character at second parameter"),
+            },
+            None => return Err("[!] Please input two parameter"),
+        };
+        let col = col as u8 - 65;
+        
+        if !board.try_set((row - 1) as usize, col as usize) {
+            Err("[!] Cannot put stone this")
+        } else {
+            Ok(())
+        }
+    }
+
+}
+
 pub struct Print;
 
 impl Print {
     pub fn logo() {
         println!("{}", REVERSI_LOGO_STR); 
+    }
+    
+    pub fn game_end(board: &ReversiBoard) {
+        println!("== GAME IS END ==");
+        println!("WINNER IS {}", board.get_winner_string());
+    }
+
+    pub fn turn(board: &ReversiBoard) {
+        let (string, stone) = match board.get_turn() {
+            Stone::Black => ("BLACK","○"),
+            Stone::White => ("WHITE","●"),
+            _ => panic!("turn is always either black or white"),
+        };
+        
+        println!("=== It's {} ({}) turn! ===", string, stone); 
     }
 
     pub fn clear() {
@@ -149,32 +270,14 @@ impl Print {
                 match stone {
                     Stone::Black => "○",
                     Stone::White => "●",
-                    Stone::Empty => " ",
+                    Stone::Empty(true) => " ",
+                    Stone::Empty(false) => "X",
                 });
             });
             println!("{}│", printed_line);
             println!(" {}", BOARD_LINE);
         });
     }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[test]
-    fn test() {
-        let mut board = ReversiBoard::new();
-        assert_eq!(true, board.can_reverse(3, 5));
-        assert_eq!(false, board.can_reverse(2, 3)); 
-        assert_eq!(false, board.can_reverse(4, 5)); 
-        assert_eq!(true, board.can_reverse(4, 2));
-
-        assert_eq!(true, board.can_set(3, 5));
-        assert_eq!(false, board.can_set(4, 3));
-        
-        board.try_set(3, 5);
-        assert_eq!(Some(&Stone::Black), board.get(3, 4));
-   }
 }
 
 
